@@ -1,0 +1,190 @@
+##Author Kumar.S ##
+##Rev 2016-06-29
+
+import boto3  
+import collections  
+import datetime  
+import csv  
+from time import gmtime, strftime
+import smtplib  
+from email.MIMEMultipart import MIMEMultipart  
+from email.MIMEBase import MIMEBase  
+from email.MIMEText import MIMEText  
+from email import Encoders  
+import os
+
+#EC2 connection 
+ec = boto3.client('ec2')  
+#S3 connection 
+s3 = boto3.resource('s3')
+
+
+def list_stopped(env,instances,csv_file):
+    for instance in instances:
+            state=instance['State']['Name']
+            if state =='stopped':
+                for tags in instance['Tags']:
+                    Instancename= tags['Value']
+                    key= tags['Key']
+                    if key == 'Name' and Instancename.startswith(env) : 
+                        instanceid=instance['InstanceId']
+                        instancetype=instance['InstanceType']
+                        launchtime =instance['LaunchTime']
+                        Placement=instance['Placement']['AvailabilityZone']
+                        csv_file.write("%s,%s,%s,%s,%s,%s,%s\n"% (Instancename,instanceid,state,instancetype,launchtime,Placement,env))
+                        csv_file.flush()
+                        #print instanceid,state,Instancename,instancetype,launchtime,Placement 
+
+def list_running(env,instances,csv_file):
+    for instance in instances:
+            state=instance['State']['Name']
+            if state =='running':
+                for tags in instance['Tags']:
+                    Instancename= tags['Value']
+                    key= tags['Key']
+                    if key == 'Name' and Instancename.startswith(env) : 
+                        instanceid=instance['InstanceId']
+                        instancetype=instance['InstanceType']
+                        launchtime =instance['LaunchTime']
+                        Placement=instance['Placement']['AvailabilityZone']
+                        csv_file.write("%s,%s,%s,%s,%s,%s,%s\n"% (Instancename,instanceid,state,instancetype,launchtime,Placement,env))
+                        csv_file.flush()
+                        #print instanceid,state,Instancename,instancetype,launchtime,Placement 
+            
+## main 
+def lambda_handler(event, context):
+    env=['DEV','SBXDEV','QA','SBXQA','PRE','SBXPRE','PRO','SBXPRO','PRO2','DEV2','QA2','TOOLS','Windows']
+    #get to the curren date
+    #Params :tempfilepath ,filename      
+    date = strftime("%Y-%m-%d", gmtime())
+    filepath ='/tmp/OP_resources-' + date + '.csv'
+    filename ='OP_resources-'+date+'.csv'
+    csv_file = open(filepath,'w+')
+    
+## Describe EC2 using boto     
+    regions = ec.describe_regions().get('Regions',[] )
+    for region in regions:
+        reg=region['RegionName']
+        regname='REGION :' + reg
+        ec2con = boto3.client('ec2',region_name=reg)
+        reservations = ec2con.describe_instances().get(
+        'Reservations',[] 
+        )
+        instances = sum(
+            [
+                [i for i in r['Instances']]
+                for r in reservations
+            ], [])
+        instanceslist = len(instances)
+        if instanceslist > 0:
+            csv_file.write("%s,%s,%s,%s,%s,%s\n"%('','','','','',''))
+            csv_file.write("%s,%s\n"%('EC2 INSTANCE',regname))
+            csv_file.write("%s,%s,%s,%s,%s,%s,%s\n"%('InstanceName','InstanceId','State','Type','LaunchTime','Placement','Environment'))
+            csv_file.flush()
+        
+        for var in env :
+            list_running(var,instances,csv_file)
+
+        for var in env:    
+            list_stopped(var,instances,csv_file)
+            
+    ##Describe EC2 Volumes and write to CSV
+        ec2volumes = ec2con.describe_volumes().get('Volumes',[])
+        volumeslist = len(ec2volumes)
+        if volumeslist > 0:
+            csv_file.write("%s,%s,%s,%s\n"%('','','',''))
+            csv_file.write("%s,%s\n"%('EBS Volume',regname))
+            csv_file.write("%s,%s,%s,%s,%s,%s\n"%('VolumeId','InstanceId','State','Size','SnapshotId','AttachTime'))
+            csv_file.flush()
+
+        for volume in ec2volumes:
+            VolumeId=volume['VolumeId']
+            State=volume['State']
+            SnapshotId=volume['SnapshotId']
+            Attachments=volume['Attachments']
+            Size=volume['Size']
+            
+            for i in Attachments:
+                 InstanceId=i['InstanceId']
+                 AttachTime=i['AttachTime']
+            csv_file.write("%s,%s,%s,%s,%s,%s\n" % (VolumeId,InstanceId,State,Size,SnapshotId,AttachTime))
+            csv_file.flush()
+        
+    ##Write RDS resources to file     
+        rdscon = boto3.client('rds',region_name=reg)
+        rdb = rdscon.describe_db_instances().get(
+        'DBInstances',[] 
+        )
+        rdblist = len(rdb)
+        if rdblist > 0:
+            csv_file.write("%s,%s,%s,%s\n" %('','','',''))
+            csv_file.write("%s,%s\n"%('RDS INSTANCE',regname))
+            csv_file.write("%s,%s,%s\n" %('DBInstanceIdentifier','DBInstanceStatus','DBInstanceClass'))
+            csv_file.flush()
+
+        for dbinstance in rdb:
+            DBInstanceIdentifier = dbinstance['DBInstanceIdentifier']
+            DBInstanceClass = dbinstance['DBInstanceClass']
+            DBInstanceStatus = dbinstance['DBInstanceStatus']
+            #DBName = dbinstance['DBName']
+            #csv_file.write("%s,%s,%s,%s\n" %(DBInstanceIdentifier,DBInstanceStatus,DBName,DBInstanceClass))
+            csv_file.write("%s,%s,%s\n" %(DBInstanceIdentifier,DBInstanceStatus,DBInstanceClass))
+            csv_file.flush()
+
+    ##describe ELB  using boto 
+        
+        elbcon = boto3.client('elb',region_name=reg)
+        loadbalancer = elbcon.describe_load_balancers().get('LoadBalancerDescriptions',[])
+        loadbalancerlist = len(loadbalancer)
+        if loadbalancerlist > 0:
+            csv_file.write("%s,%s,%s,%s\n" % ('','','',''))
+            csv_file.write("%s,%s\n"%('ELB INSTANCE',regname))
+            csv_file.write("%s,%s,%s,%s\n" % ('LoadBalancerName','DNSName','NumofInstances','InstanceId'))
+            csv_file.flush()
+
+        for load in loadbalancer:
+            #print load
+            LoadBalancerName=load['LoadBalancerName']
+            DNSName=load['DNSName']
+            Instances=load['Instances']
+            num_Instances=len(Instances)
+            InstanceId =[]
+            for i in Instances:
+                InstanceId.append(i['InstanceId'])
+            Instance = ', '.join(InstanceId)
+            #CanonicalHostedZoneName=load['CanonicalHostedZoneName']
+            #CanonicalHostedZoneNameID=load['CanonicalHostedZoneNameID']
+           #csv_file.write("%s,%s,%s,%s\n" % (LoadBalancerName,DNSName,CanonicalHostedZoneName,CanonicalHostedZoneNameID))
+            csv_file.write("%s,%s,%s,%s\n" % (LoadBalancerName,DNSName,num_Instances,'"'+Instance+'"'))
+            csv_file.flush()
+            
+    ## SMTP user credentials     
+        ses_user = xxxxx
+        ses_pwd = xxxxx
+    ## Email function 
+    def mail(fromadd,to, subject, text, attach):
+       msg = MIMEMultipart()
+       msg['From'] = fromadd
+       msg['To'] = to
+       msg['Subject'] = subject
+       msg.attach(MIMEText(text))
+       part = MIMEBase('application', 'octet-stream')
+       part.set_payload(open(attach, 'rb').read())
+       Encoders.encode_base64(part)
+       part.add_header('Content-Disposition','attachment; filename="%s"' % os.path.basename(attach))
+       msg.attach(part)
+       mailServer = smtplib.SMTP("email-smtp.us-east-1.amazonaws.com", 587)
+       mailServer.ehlo()
+       mailServer.starttls()
+       mailServer.ehlo()
+       mailServer.login(ses_user, ses_pwd)
+       mailServer.sendmail(fromadd, to, msg.as_string())
+       mailServer.close()
+    
+    date = strftime("%Y-%m-%d", gmtime())
+    filepath ='/tmp/OP_resources-' + date + '.csv'
+    filename ='OP_resources-'+date+'.csv'
+    bucket_name = 'openplatform-aws-inventory'
+    s3.Object( bucket_name, filename).put(Body=open(filepath, 'rb'))
+    mail("kumar.aws99@gmail.com","umar.aws99@gmail.com"," AWS inventory update","Please find the list  for the AWS resources attached "+"\n"+"Regards"+"\n"+"Kumar.S",filepath)
+    #return [filename]
