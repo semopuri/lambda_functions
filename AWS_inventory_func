@@ -184,7 +184,7 @@ def lambda_handler(event, context):
     date = strftime("%Y-%m-%d", gmtime())
     filepath ='/tmp/OP_resources-' + date + '.csv'
     filename ='OP_resources-'+date+'.csv'
-    bucket_name = 'openplatform-aws-inventory'
+    bucket_name = 'aws-inventory'
     s3.Object( bucket_name, filename).put(Body=open(filepath, 'rb'))
-    mail("kumar.aws99@gmail.com","umar.aws99@gmail.com"," AWS inventory update","Please find the list  for the AWS resources attached "+"\n"+"Regards"+"\n"+"Kumar.S",filepath)
+    mail("kumar.aws99@gmail.com","kumar.aws99@gmail.com"," AWS inventory update","Please find the list  for the AWS resources attached "+"\n"+"Regards"+"\n"+"Kumar.S",filepath)
     #return [filename]
