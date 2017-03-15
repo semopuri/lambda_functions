@@ -53,7 +53,8 @@ def list_running(env,instances,csv_file):
             
 ## main 
 def lambda_handler(event, context):
-    env=['DEV','SBXDEV','QA','SBXQA','PRE','SBXPRE','PRO','SBXPRO','PRO2','DEV2','QA2','TOOLS','Windows']
+    ## tag example "DEV-SERVICE-NAME" 
+    env=['DEV','PRO','Windows']
     #get to the curren date
     #Params :tempfilepath ,filename      
     date = strftime("%Y-%m-%d", gmtime())
